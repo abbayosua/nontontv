@@ -96,4 +96,16 @@ file_put_contents("$dir/streams.json", json_encode($streams));
 file_put_contents("$dir/streams_index.json", json_encode(array_keys($channelIds)));
 echo "OK (" . count($streams) . " streams, " . count($channelIds) . " channels)\n";
 
+echo "\nBuilding logo index... ";
+$logos = json_decode(file_get_contents("$dir/logos.json"), true);
+$logoIndex = [];
+foreach ($logos as $l) {
+    $ch = $l['channel'] ?? '';
+    if ($ch && ($l['in_use'] ?? false) && !isset($logoIndex[$ch])) {
+        $logoIndex[$ch] = $l['url'];
+    }
+}
+file_put_contents("$dir/logos_index.json", json_encode($logoIndex));
+echo "(" . count($logoIndex) . " logos)\n";
+
 echo "\nDone.\n";

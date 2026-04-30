@@ -17,6 +17,8 @@ if ($action === 'channels') {
     $hasStreams = loadJSON('streams_index.json');
     $streamSet = $hasStreams ? array_flip($hasStreams) : [];
 
+    $logos = loadJSON('logos_index.json') ?: [];
+
     $page = max(1, intval($_GET['page'] ?? 1));
     $perPage = 50;
     $country = $_GET['country'] ?? '';
@@ -39,9 +41,15 @@ if ($action === 'channels') {
     $total = count($channels);
     $totalPages = ceil($total / $perPage);
     $offset = ($page - 1) * $perPage;
+    $items = array_slice($channels, $offset, $perPage);
+
+    foreach ($items as &$ch) {
+        $ch['logo'] = $logos[$ch['id'] ?? ''] ?? null;
+    }
+    unset($ch);
 
     header('Content-Type: application/json');
-    echo json_encode(['items' => array_slice($channels, $offset, $perPage), 'total' => $total, 'page' => $page, 'totalPages' => $totalPages]);
+    echo json_encode(['items' => $items, 'total' => $total, 'page' => $page, 'totalPages' => $totalPages]);
     exit;
 }
 

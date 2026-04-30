@@ -88,7 +88,7 @@ function renderChannelList(channels) {
     }
 
     list.innerHTML = channels.map(ch => {
-        const logo = `https://raw.githubusercontent.com/iptv-org/database/master/logos/${ch.id}.png`;
+        const logo = ch.logo || `https://raw.githubusercontent.com/iptv-org/database/master/logos/${ch.id}.png`;
         const country = ch.country || '';
         const cats = (ch.categories || []).join(', ');
         return `<div class="channel-item" onclick="selectChannel('${ch.id}')" data-id="${ch.id}">
