@@ -6,9 +6,9 @@ const API = {
     logos: 'index.php?action=logos&channel=',
 };
 
-let currentChannel = null;
 let currentPage = 1;
-let hls = null;
+let dp = null;
+let retryTimer = null;
 
 function $(id) { return document.getElementById(id); }
 
@@ -91,8 +91,7 @@ function renderChannelList(channels) {
         const logo = `https://raw.githubusercontent.com/iptv-org/database/master/logos/${ch.id}.png`;
         const country = ch.country || '';
         const cats = (ch.categories || []).join(', ');
-        const active = currentChannel && currentChannel.id === ch.id ? 'active' : '';
-        return `<div class="channel-item ${active}" onclick="selectChannel('${ch.id}')" data-id="${ch.id}">
+        return `<div class="channel-item" onclick="selectChannel('${ch.id}')" data-id="${ch.id}">
             <img class="ch-logo" src="${logo}" alt="" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 36 36%22><rect fill=%22%232a2a30%22 width=%2236%22 height=%2236%22/><text x=%2218%22 y=%2222%22 text-anchor=%22middle%22 fill=%22%23888890%22 font-size=%2214%22>${(ch.name[0]||'?').toUpperCase()}</text></svg>'">
             <div class="ch-info">
                 <div class="ch-name">${ch.name}</div>
@@ -127,6 +126,14 @@ function debouncedSearch() {
     searchTimeout = setTimeout(() => loadChannels(1), 400);
 }
 
+function detectStreamType(url) {
+    const u = url.toLowerCase();
+    if (u.includes('.m3u8')) return 'hls';
+    if (u.includes('.flv')) return 'flv';
+    if (u.includes('.mpd')) return 'dash';
+    return 'auto';
+}
+
 async function selectChannel(channelId) {
     showLoadingBar(true);
 
@@ -139,98 +146,55 @@ async function selectChannel(channelId) {
     const logos = await fetchJSON(API.logos + channelId);
     const logoUrl = logos && logos.length > 0 ? logos[0].url : `https://raw.githubusercontent.com/iptv-org/database/master/logos/${channelId}.png`;
 
+    if (dp) { dp.destroy(); dp = null; }
+
     document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
     const activeEl = document.querySelector(`.channel-item[data-id="${channelId}"]`);
     if (activeEl) activeEl.classList.add('active');
 
     $('playerPlaceholder').style.display = 'none';
-    $('playerWrapper').style.display = 'flex';
+    $('dplayer').style.display = 'block';
 
-    let streamHtml = '<div class="stream-selector">';
-    streams.forEach((s, i) => {
-        const label = s.quality ? `${s.title} (${s.quality})` : s.title;
-        streamHtml += `<button class="stream-btn ${i === 0 ? 'active' : ''}" onclick="playStream(${i})" data-idx="${i}">${label}</button>`;
+    const quality = streams.map(s => {
+        let url = s.url;
+        if (s.referrer || s.user_agent) {
+            url = `proxy.php?url=${encodeURIComponent(s.url)}${s.referrer ? '&referrer=' + encodeURIComponent(s.referrer) : ''}${s.user_agent ? '&ua=' + encodeURIComponent(s.user_agent) : ''}`;
+        }
+        return {
+            name: s.quality || 'Auto',
+            url: url,
+            type: detectStreamType(url),
+        };
     });
-    streamHtml += '</div>';
-    const oldSelector = $('playerWrapper').querySelector('.stream-selector');
-    if (oldSelector) oldSelector.remove();
 
-    $('playerInfo').innerHTML = `
-        <img class="pi-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
-        <div class="pi-name">${streams[0].title || channelId}</div>
-        <div class="pi-status"><span class="dot buffering" id="statusDot"></span><span id="statusText">Loading...</span></div>
-    `;
+    try {
+        dp = new DPlayer({
+            container: document.getElementById('dplayer'),
+            autoplay: true,
+            live: true,
+            screenshot: true,
+            hotkey: true,
+            theme: '#4f8cff',
+            video: {
+                quality: quality,
+                defaultQuality: 0,
+                pic: logoUrl,
+            },
+        });
 
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = streamHtml;
-    $('playerWrapper').insertBefore(wrapper.firstElementChild, $('playerInfo'));
+        dp.on('canplay', () => dp.notice('Live', 2000));
+        dp.on('error', () => dp.notice('Stream error', 3000));
+        dp.on('waiting', () => {});
+        dp.on('playing', () => dp.notice('Live', 2000));
+    } catch (e) {
+        console.error('DPlayer init error:', e);
+        $('playerPlaceholder').style.display = 'flex';
+        $('dplayer').style.display = 'none';
+    }
 
-    currentChannel = { id: channelId, streams, currentIdx: 0 };
-    playStream(0);
     showLoadingBar(false);
-}
-
-function playStream(idx) {
-    if (!currentChannel || !currentChannel.streams[idx]) return;
-    currentChannel.currentIdx = idx;
-
-    const stream = currentChannel.streams[idx];
-    const video = $('videoPlayer');
-
-    document.querySelectorAll('.stream-btn').forEach(b => b.classList.remove('active'));
-    const btn = document.querySelector(`.stream-btn[data-idx="${idx}"]`);
-    if (btn) btn.classList.add('active');
-
-    if (hls) { hls.destroy(); hls = null; }
-
-    const url = stream.url;
-    const needsProxy = stream.referrer || stream.user_agent;
-
-    let streamUrl = url;
-    if (needsProxy) {
-        streamUrl = `proxy.php?url=${encodeURIComponent(url)}${stream.referrer ? '&referrer=' + encodeURIComponent(stream.referrer) : ''}${stream.user_agent ? '&ua=' + encodeURIComponent(stream.user_agent) : ''}`;
-    }
-
-    updateStatus('buffering', 'Connecting...');
-
-    if (Hls.isSupported() && (streamUrl.includes('.m3u8') || needsProxy)) {
-        hls = new Hls({ enableWorker: true, lowLatencyMode: true, fragLoadingTimeOut: 30000, manifestLoadingTimeOut: 30000 });
-        hls.loadSource(streamUrl);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); updateStatus('live', 'Live'); });
-        hls.on(Hls.Events.ERROR, (e, data) => { if (data.fatal) updateStatus('error', 'Stream error'); });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = streamUrl;
-        video.addEventListener('loadedmetadata', () => { video.play().catch(() => {}); updateStatus('live', 'Live'); });
-        video.addEventListener('error', () => updateStatus('error', 'Playback error'));
-    } else {
-        video.src = streamUrl;
-        video.play().catch(() => updateStatus('error', 'Cannot play this stream'));
-        updateStatus('live', 'Live');
-    }
-
-    video.addEventListener('waiting', () => updateStatus('buffering', 'Buffering...'));
-    video.addEventListener('playing', () => updateStatus('live', 'Live'));
-    video.addEventListener('stalled', () => updateStatus('buffering', 'Stalled...'));
-}
-
-function updateStatus(type, text) {
-    const dot = $('statusDot');
-    const txt = $('statusText');
-    if (dot) dot.className = 'dot ' + type;
-    if (txt) txt.textContent = text;
 }
 
 loadCountries();
 loadCategories();
 loadChannels(1);
-
-document.addEventListener('keydown', (e) => {
-    if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
-        e.preventDefault();
-        const video = $('videoPlayer');
-        if (video.paused) video.play(); else video.pause();
-    }
-    if (e.key === 'f' || e.key === 'F') { const video = $('videoPlayer'); if (video.requestFullscreen) video.requestFullscreen(); }
-    if (e.key === 'm' || e.key === 'M') { const video = $('videoPlayer'); video.muted = !video.muted; }
-});

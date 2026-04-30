@@ -87,6 +87,7 @@ if ($action === 'logos') {
 <title>NontonTV - IPTV Player</title>
 <link rel="stylesheet" href="css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/dplayer@latest/dist/DPlayer.min.js"></script>
 </head>
 <body>
 <div id="loadingBar"></div>
@@ -110,17 +111,12 @@ if ($action === 'logos') {
         </aside>
 
         <main id="playerArea">
-            <div class="player-container" id="playerContainer">
-                <div class="player-placeholder" id="playerPlaceholder">
-                    <div class="placeholder-icon">&#9654;</div>
-                    <h2>Select a channel to start watching</h2>
-                    <p>Browse channels from the list or search for your favorite channel</p>
-                </div>
-                <div class="player-wrapper" id="playerWrapper" style="display:none">
-                    <video id="videoPlayer" controls autoplay playsinline></video>
-                    <div class="player-info" id="playerInfo"></div>
-                </div>
+            <div class="player-placeholder" id="playerPlaceholder">
+                <div class="placeholder-icon">&#9654;</div>
+                <h2>Select a channel to start watching</h2>
+                <p>Browse channels from the list or search for your favorite channel</p>
             </div>
+            <div id="dplayer" style="display:none"></div>
         </main>
     </div>
 </div>
